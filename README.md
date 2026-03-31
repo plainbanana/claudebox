@@ -32,14 +32,17 @@ Or add to your flake inputs:
 ## Usage
 
 ```bash
-claudebox [OPTIONS]
+claudebox [OPTIONS] [--] [CLAUDE_ARGS...]
 ```
 
 ### Options
 
+- `--ro-bind <path>` - Extra read-only bind mount, repeatable (Linux only)
+- `--rw-bind <path>` - Extra read-write bind mount, repeatable
 - `--allow-ssh-agent` - Allow access to SSH agent socket (for git operations)
 - `--allow-gpg-agent` - Allow access to GPG agent socket (for signing)
 - `--allow-xdg-runtime` - Allow full XDG runtime directory access
+- `--` - Pass remaining arguments to claude
 - `-h, --help` - Show help message
 
 ### Examples
@@ -50,11 +53,18 @@ claudebox
 
 # Allow SSH agent for git operations
 claudebox --allow-ssh-agent
+
+# Extra read-only mount + resume session
+claudebox --ro-bind /data -- --resume
+
+# Pass prompt directly to claude
+claudebox -- -p "summarize this repo"
 ```
 
 ## Configuration
 
 Settings can be stored in `~/.config/claudebox/config.json` (or `$XDG_CONFIG_HOME/claudebox/config.json`).
+Override the config path with the `CLAUDEBOX_CONFIG` environment variable.
 CLI arguments override config file settings.
 
 ### Config Schema
@@ -63,7 +73,9 @@ CLI arguments override config file settings.
 {
   "allowSshAgent": false,
   "allowGpgAgent": false,
-  "allowXdgRuntime": false
+  "allowXdgRuntime": false,
+  "roBinds": ["/path/to/dir"],
+  "rwBinds": ["/path/to/dir"]
 }
 ```
 
@@ -74,6 +86,8 @@ CLI arguments override config file settings.
 | `allowSshAgent` | boolean | `false` | Mount SSH agent socket |
 | `allowGpgAgent` | boolean | `false` | Mount GPG agent socket |
 | `allowXdgRuntime` | boolean | `false` | Mount full XDG runtime dir |
+| `roBinds` | string[] | `[]` | Extra read-only bind mounts (Linux only) |
+| `rwBinds` | string[] | `[]` | Extra read-write bind mounts |
 
 ## What it does
 

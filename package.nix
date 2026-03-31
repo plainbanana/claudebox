@@ -72,7 +72,7 @@ pkgs.runCommand "claudebox"
           ]
           ++ sandboxTools
         )
-      } \
+      }:$out/libexec/claudebox \
       ${if isDarwin then "--set CLAUDEBOX_SEATBELT_PROFILE $out/share/claudebox/seatbelt.sbpl" else ""}
 
     # Create claude wrapper

@@ -55,6 +55,10 @@ function getTmpDir() {
 	return process.env.TMPDIR || process.env.TEMP || process.env.TMP || "/tmp";
 }
 
+function shellQuote(s) {
+	return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
 // =============================================================================
 // Configuration
 // =============================================================================
@@ -63,9 +67,14 @@ const CONFIG_DEFAULTS = {
 	allowSshAgent: false,
 	allowGpgAgent: false,
 	allowXdgRuntime: false,
+	roBinds: [],
+	rwBinds: [],
 };
 
 function getConfigPath() {
+	if (process.env.CLAUDEBOX_CONFIG) {
+		return process.env.CLAUDEBOX_CONFIG;
+	}
 	const xdgConfig =
 		process.env.XDG_CONFIG_HOME || path.join(process.env.HOME, ".config");
 	return path.join(xdgConfig, "claudebox", "config.json");
@@ -258,6 +267,14 @@ class BubblewrapSandbox extends Sandbox {
 			"/tmp",
 		];
 
+		// Pass terminal size to sandbox
+		if (process.stdout.columns) {
+			args.push("--setenv", "COLUMNS", String(process.stdout.columns));
+		}
+		if (process.stdout.rows) {
+			args.push("--setenv", "LINES", String(process.stdout.rows));
+		}
+
 		// Mount parent directory tree as read-only if needed
 		if (shareTree !== repoRoot) {
 			args.push("--ro-bind", shareTree, shareTree);
@@ -291,6 +308,24 @@ class BubblewrapSandbox extends Sandbox {
 				if (isDirectory(gpgDir)) {
 					args.push("--ro-bind", gpgDir, gpgDir);
 				}
+			}
+		}
+
+		// Extra read-only bind mounts from config (roBinds)
+		for (const p of this.config.roBinds || []) {
+			if (pathExists(p)) {
+				args.push("--ro-bind", p, p);
+			} else {
+				console.warn(`Warning: roBinds path not found, skipping: ${p}`);
+			}
+		}
+
+		// Extra read-write bind mounts from config (rwBinds)
+		for (const p of this.config.rwBinds || []) {
+			if (pathExists(p)) {
+				args.push("--bind", p, p);
+			} else {
+				console.warn(`Warning: rwBinds path not found, skipping: ${p}`);
 			}
 		}
 
@@ -339,6 +374,17 @@ class SeatbeltSandbox extends Sandbox {
 			writablePaths.push('(subpath (param "SLASH_TMP"))');
 		}
 
+		// Extra read-write bind mounts from config (rwBinds)
+		// roBinds are unnecessary on macOS since file-read* is already allowed globally
+		const rwBinds = this.config.rwBinds || [];
+		rwBinds.forEach((p, idx) => {
+			if (pathExists(p)) {
+				writablePaths.push(`(subpath (param "RWBIND_${idx}"))`);
+			} else {
+				console.warn(`Warning: rwBinds path not found, skipping: ${p}`);
+			}
+		});
+
 		const dynamicPolicy = `
 ; Allow read-only file operations
 (allow file-read*)
@@ -367,6 +413,13 @@ class SeatbeltSandbox extends Sandbox {
 			args.push(`-DSLASH_TMP=${canonicalSlashTmp}`);
 		}
 
+		// Pass rwBinds as sandbox-exec parameters
+		rwBinds.forEach((p, idx) => {
+			if (pathExists(p)) {
+				args.push(`-DRWBIND_${idx}=${realpath(p)}`);
+			}
+		});
+
 		args.push("--", "bash", "-c", script);
 
 		return {
@@ -392,6 +445,10 @@ function parseArgs(args) {
 		allowXdgRuntime: undefined,
 	};
 
+	const cliRoBinds = [];
+	const cliRwBinds = [];
+	let claudeArgs = [];
+
 	let i = 0;
 	while (i < args.length) {
 		const arg = args[i];
@@ -410,6 +467,28 @@ function parseArgs(args) {
 			case "--allow-xdg-runtime":
 				cliOverrides.allowXdgRuntime = true;
 				i++;
+				break;
+
+			case "--ro-bind":
+			case "--rw-bind": {
+				const next = args[i + 1];
+				if (!next || next.startsWith("-")) {
+					console.error(`${arg} requires a path argument`);
+					process.exit(1);
+				}
+				const resolved = path.resolve(next);
+				if (arg === "--ro-bind") {
+					cliRoBinds.push(resolved);
+				} else {
+					cliRwBinds.push(resolved);
+				}
+				i += 2;
+				break;
+			}
+
+			case "--":
+				claudeArgs = args.slice(i + 1);
+				i = args.length;
 				break;
 
 			case "-h":
@@ -439,6 +518,9 @@ function parseArgs(args) {
 			cliOverrides.allowXdgRuntime !== undefined
 				? cliOverrides.allowXdgRuntime
 				: config.allowXdgRuntime,
+		roBinds: [...(config.roBinds || []), ...cliRoBinds],
+		rwBinds: [...(config.rwBinds || []), ...cliRwBinds],
+		claudeArgs,
 	};
 
 	return options;
@@ -446,23 +528,30 @@ function parseArgs(args) {
 
 function showHelp() {
 	const configPath = getConfigPath();
-	console.log(`Usage: claudebox [OPTIONS]
+	console.log(`Usage: claudebox [OPTIONS] [--] [CLAUDE_ARGS...]
 
 Options:
+  --ro-bind <path>                        Extra read-only bind mount (repeatable, Linux only)
+  --rw-bind <path>                        Extra read-write bind mount (repeatable)
   --allow-ssh-agent                       Allow access to SSH agent socket
   --allow-gpg-agent                       Allow access to GPG agent socket
   --allow-xdg-runtime                     Allow full XDG runtime directory access
   -h, --help                              Show this help message
 
+  Arguments after -- are passed directly to claude.
+
 Configuration:
   Settings can be configured in ${configPath}
+  Override config path with CLAUDEBOX_CONFIG environment variable.
   CLI arguments override config file settings.
 
   Example config:
     {
       "allowSshAgent": false,
       "allowGpgAgent": false,
-      "allowXdgRuntime": false
+      "allowXdgRuntime": false,
+      "roBinds": ["/path/to/dir"],
+      "rwBinds": ["/path/to/dir"]
     }
 
 Security:
@@ -473,7 +562,8 @@ Security:
 Examples:
   claudebox                               # Run with default settings
   claudebox --allow-ssh-agent             # Allow SSH agent for git operations
-  claudebox --allow-xdg-runtime           # Allow full XDG runtime access`);
+  claudebox --ro-bind /data -- --resume   # Extra mount + resume session
+  claudebox -- -p "summarize this repo"   # Pass prompt to claude`);
 }
 
 // =============================================================================
@@ -554,6 +644,8 @@ function main() {
 			allowSshAgent: options.allowSshAgent,
 			allowGpgAgent: options.allowGpgAgent,
 			allowXdgRuntime: options.allowXdgRuntime,
+			roBinds: options.roBinds,
+			rwBinds: options.rwBinds,
 		});
 	} catch (err) {
 		console.error(`Error: ${err.message}`);
@@ -561,10 +653,14 @@ function main() {
 	}
 
 	// Build script and launch
-	const script = `
-cd '${projectDir}'
-exec claude --dangerously-skip-permissions
-`;
+	const claudeCmd = [
+		"claude",
+		"--dangerously-skip-permissions",
+		...options.claudeArgs,
+	]
+		.map(shellQuote)
+		.join(" ");
+	const script = `\ncd ${shellQuote(projectDir)}\nexec ${claudeCmd}\n`;
 
 	const child = sandbox.spawn(script);
 	child.on("close", (code) => process.exit(code || 0));
