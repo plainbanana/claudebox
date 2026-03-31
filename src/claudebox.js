@@ -562,6 +562,7 @@ Security:
 Examples:
   claudebox                               # Run with default settings
   claudebox --allow-ssh-agent             # Allow SSH agent for git operations
+  claudebox --allow-xdg-runtime           # Allow full XDG runtime access
   claudebox --ro-bind /data -- --resume   # Extra mount + resume session
   claudebox -- -p "summarize this repo"   # Pass prompt to claude`);
 }
