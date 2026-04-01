@@ -37,7 +37,7 @@ claudebox [OPTIONS] [--] [CLAUDE_ARGS...]
 
 ### Options
 
-- `--ro-bind <path>` - Extra read-only bind mount, repeatable (Linux only)
+- `--ro-bind <path>` - Extra read-only bind mount, repeatable
 - `--rw-bind <path>` - Extra read-write bind mount, repeatable
 - `--allow-ssh-agent` - Allow access to SSH agent socket (for git operations)
 - `--allow-gpg-agent` - Allow access to GPG agent socket (for signing)
@@ -86,12 +86,12 @@ CLI arguments override config file settings.
 | `allowSshAgent` | boolean | `false` | Mount SSH agent socket |
 | `allowGpgAgent` | boolean | `false` | Mount GPG agent socket |
 | `allowXdgRuntime` | boolean | `false` | Mount full XDG runtime dir |
-| `roBinds` | string[] | `[]` | Extra read-only bind mounts (Linux only) |
+| `roBinds` | string[] | `[]` | Extra read-only bind mounts |
 | `rwBinds` | string[] | `[]` | Extra read-write bind mounts |
 
 ## What it does
 
-- Lightweight sandbox using bubblewrap (Linux) or sandbox-exec (macOS)
+- Lightweight sandbox using [sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime) (bubblewrap on Linux, sandbox-exec on macOS)
 - Disables telemetry and auto-updates
 - Uses `--dangerously-skip-permissions` (safe in sandbox)
 

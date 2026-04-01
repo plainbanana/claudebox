@@ -29,10 +29,13 @@
                 inherit system;
                 config.allowUnfree = true;
               };
-              claudebox = pkgs.callPackage ./package.nix { };
+              sandbox-runtime = pkgs.callPackage ./nix/sandbox-runtime/package.nix { };
+              claudebox = pkgs.callPackage ./package.nix {
+                inherit sandbox-runtime;
+              };
             in
             {
-              inherit claudebox;
+              inherit claudebox sandbox-runtime;
               default = claudebox;
             }
           );

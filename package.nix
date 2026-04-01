@@ -2,11 +2,13 @@
   pkgs,
   # Make claude-code overridable
   claude-code,
+  # Sandbox runtime (srt) for cross-platform sandboxing
+  sandbox-runtime,
   # Keep this so package.nix can be copied into llm-agents.nix
   sourceDir ? ./src,
 }:
 let
-  inherit (pkgs.stdenv) isLinux isDarwin;
+  inherit (pkgs.stdenv) isLinux;
 
   # Bundle all the tools Claude needs into a single environment
   claudeTools = pkgs.buildEnv {
@@ -34,12 +36,6 @@ let
     ];
   };
 
-  # Platform-specific sandbox tools
-  sandboxTools = if isLinux then [ pkgs.bubblewrap ] else [ ];
-
-  # Seatbelt profile for macOS (only installed on darwin)
-  seatbeltProfile = "${sourceDir}/seatbelt.sbpl";
-
 in
 pkgs.runCommand "claudebox"
   {
@@ -53,15 +49,15 @@ pkgs.runCommand "claudebox"
     };
   }
   ''
-    mkdir -p $out/bin $out/share/claudebox $out/libexec/claudebox
+    mkdir -p $out/bin $out/libexec/claudebox
 
     # Install claudebox launcher script
     cp ${sourceDir}/claudebox.js $out/libexec/claudebox/claudebox.js
 
-    # Install seatbelt profile for macOS
-    cp ${seatbeltProfile} $out/share/claudebox/seatbelt.sbpl
+    # Link srt node_modules for library access
+    ln -s ${sandbox-runtime}/lib/node_modules $out/libexec/claudebox/node_modules
 
-    # Create claudebox executable with platform-specific configuration
+    # Create claudebox executable
     makeWrapper ${pkgs.nodejs}/bin/node $out/bin/claudebox \
       --add-flags $out/libexec/claudebox/claudebox.js \
       --prefix PATH : ${
@@ -70,10 +66,12 @@ pkgs.runCommand "claudebox"
             pkgs.bashInteractive
             claudeTools
           ]
-          ++ sandboxTools
+          ++ pkgs.lib.optionals isLinux [
+            pkgs.bubblewrap
+            pkgs.socat
+          ]
         )
-      }:$out/libexec/claudebox \
-      ${if isDarwin then "--set CLAUDEBOX_SEATBELT_PROFILE $out/share/claudebox/seatbelt.sbpl" else ""}
+      }:$out/libexec/claudebox
 
     # Create claude wrapper
     makeWrapper ${claude-code}/bin/.claude-wrapped $out/libexec/claudebox/claude \

@@ -4,3 +4,6 @@
 # nix
 result
 result-*
+
+# IDE
+.idea
